@@ -7705,6 +7705,13 @@ Translate to {target_language}.`;
         // When user selects a new model, always reset advanced settings to that model's defaults
         // This overrides any cached values from previous model selections
         // Manual changes made AFTER model selection will persist until next model change
+        document.getElementById('geminiModel').addEventListener('focus', async function () {
+            const apiKey = document.getElementById('geminiApiKey')?.value?.trim();
+            if (apiKey && apiKey.length >= 10 && apiKey !== lastFetchedApiKey) {
+                await autoFetchModels(apiKey);
+            }
+        });
+
         document.getElementById('geminiModel').addEventListener('change', function (e) {
             const selectedModel = e.target.value;
             const modelDefaults = getModelSpecificDefaults(selectedModel);
