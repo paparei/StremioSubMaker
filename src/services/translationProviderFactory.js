@@ -191,6 +191,7 @@ async function createProviderInstance(providerKey, providerConfig = {}, provider
           translationTimeout: providerParams.translationTimeout,
           maxRetries: providerParams.maxRetries,
           thinkingBudget: providerParams.thinkingBudget,
+          thinkingLevel: providerParams.thinkingLevel,
           temperature: providerParams.temperature,
           topP: providerParams.topP,
           enableJsonOutput

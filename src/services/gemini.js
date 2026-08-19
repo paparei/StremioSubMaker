@@ -105,6 +105,14 @@ class GeminiService {
       ? advancedSettings.thinkingBudget
       : envThinking;
 
+    // Gemini v3.x replaced thinkingBudget with thinkingLevel
+    // (disabled | minimal | low | medium | high). Only honored for v3+ models.
+    const thinkingLevel = String(advancedSettings.thinkingLevel || '').toLowerCase();
+    this.thinkingLevel = ['disabled', 'minimal', 'low', 'medium', 'high'].includes(thinkingLevel)
+      ? thinkingLevel
+      : null;
+    this.isV3Model = /gemini-3\b|gemini-3[.\-]/.test(String(this.model).toLowerCase());
+
     // Temperature (default: 0.8)
     this.temperature = advancedSettings.temperature !== undefined
       ? advancedSettings.temperature
@@ -137,6 +145,13 @@ class GeminiService {
 
   getEffectiveThinkingBudget() {
     return this.isGemmaModel ? 0 : this.thinkingBudget;
+  }
+
+  // v3.x models take thinkingLevel instead of thinkingBudget; JSON output and
+  // fixed budget reserves don't apply the same way, so treat level as "enabled"
+  // for output-token planning purposes.
+  isV3ThinkingMode() {
+    return this.isV3Model && this.thinkingLevel !== null && this.thinkingLevel !== 'disabled';
   }
 
   /**
@@ -401,10 +416,11 @@ class GeminiService {
         const thinkingReserve = thinkingBudget > 0 ? thinkingBudget : 0;
         const availableForOutput = Math.max(1024, Math.min(this.maxOutputTokens, modelOutputCap - safetyMargin - thinkingReserve));
 
-        // When thinking is enabled (dynamic or fixed budget), don't limit output based on subtitle size
-        // Thinking can consume significant tokens, so we need the full available output capacity
+        // When thinking is enabled (dynamic, fixed budget, or v3 thinkingLevel), don't limit
+        // output based on subtitle size — thinking consumes part of maxOutputTokens, so we
+        // need the full available output capacity
         let estimatedOutputTokens;
-        if (thinkingBudget !== 0) {
+        if (thinkingBudget !== 0 || this.isV3ThinkingMode()) {
           // Thinking enabled: use full available output (thinking will consume part of maxOutputTokens)
           estimatedOutputTokens = availableForOutput;
         } else {
@@ -426,13 +442,16 @@ class GeminiService {
         // JSON structured output mode
         // Note: responseMimeType is incompatible with thinkingConfig — when thinking
         // is enabled the model needs free-form internal reasoning, so skip JSON mode.
-        if (this.enableJsonOutput && thinkingBudget === 0) {
+        if (this.enableJsonOutput && thinkingBudget === 0 && !this.isV3ThinkingMode()) {
           generationConfig.responseMimeType = 'application/json';
         }
 
         // Add thinking config based on thinking budget setting
         // -1 = dynamic thinking (null), 0 = disabled (omit), >0 = fixed budget
-        if (thinkingBudget === -1) {
+        // Gemini v3.x models take thinkingLevel instead (#144)
+        if (this.isV3ThinkingMode()) {
+          generationConfig.thinkingLevel = this.thinkingLevel;
+        } else if (thinkingBudget === -1) {
           // Dynamic thinking: let the model decide
           generationConfig.thinkingConfig = {
             thinkingBudget: null  // null means dynamic
@@ -589,7 +608,7 @@ class GeminiService {
         const availableForOutput = Math.max(1024, Math.min(this.maxOutputTokens, modelOutputCap - safetyMargin - thinkingReserve));
 
         let estimatedOutputTokens;
-        if (thinkingBudget !== 0) {
+        if (thinkingBudget !== 0 || this.isV3ThinkingMode()) {
           estimatedOutputTokens = availableForOutput;
         } else {
           estimatedOutputTokens = Math.floor(Math.min(
@@ -606,11 +625,14 @@ class GeminiService {
         };
 
         // JSON structured output mode (incompatible with thinking — see translateSubtitle)
-        if (this.enableJsonOutput && thinkingBudget === 0) {
+        if (this.enableJsonOutput && thinkingBudget === 0 && !this.isV3ThinkingMode()) {
           generationConfig.responseMimeType = 'application/json';
         }
 
-        if (thinkingBudget === -1) {
+        // Gemini v3.x models take thinkingLevel instead (#144)
+        if (this.isV3ThinkingMode()) {
+          generationConfig.thinkingLevel = this.thinkingLevel;
+        } else if (thinkingBudget === -1) {
           generationConfig.thinkingConfig = { thinkingBudget: null };
         } else if (thinkingBudget > 0) {
           generationConfig.thinkingConfig = { thinkingBudget: thinkingBudget };

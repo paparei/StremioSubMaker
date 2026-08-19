@@ -27,8 +27,29 @@ function inferHearingImpairedFromName(name) {
   return false;
 }
 
+function isForcedSubtitle(sub) {
+  if (!sub) return false;
+  return (
+    isTrueishFlag(sub.forced) ||
+    isTrueishFlag(sub.is_forced) ||
+    isTrueishFlag(sub.foreign_parts_only)
+  );
+}
+
+function inferForcedFromName(name) {
+  if (!name) return false;
+  const s = String(name).toLowerCase();
+  if (/(^|[\s._\-\[(])forced($|[\s._\-\])])/.test(s)) return true;
+  if (/(^|[\s._\-\[(])forsub($|[\s._\-\])])/.test(s)) return true;
+  if (/foreign[\s._-]*parts?/.test(s)) return true;
+  if (/(^|[\s._\-\[(])fsub($|[\s._\-\])])/.test(s)) return true;
+  return false;
+}
+
 module.exports = {
   isTrueishFlag,
   isHearingImpairedSubtitle,
-  inferHearingImpairedFromName
+  inferHearingImpairedFromName,
+  isForcedSubtitle,
+  inferForcedFromName
 };

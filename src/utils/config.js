@@ -160,6 +160,7 @@ function mergeProviderParameters(defaults, incoming) {
         const chosen = Number.isFinite(requested) ? requested : fallback;
         return Math.max(-1, Math.min(200000, chosen));
       })(),
+      thinkingLevel: sanitizeReasoningEffort(raw?.thinkingLevel, undefined),
       formality: typeof raw?.formality === 'string'
         ? raw.formality
         : (typeof base.formality === 'string' ? base.formality : 'default'),

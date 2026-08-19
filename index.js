@@ -128,6 +128,9 @@ function normalizeSubtitleQueryExtras(req) {
 
     // Only rewrite requests that use the SDK-incompatible query-string variant:
     //   /subtitles/{type}/{id}.json?filename=...&videoHash=...
+    // (The SDK router already parses path-segment extras like
+    //   /subtitles/{type}/{id}/videoHash=x&videoSize=y&filename=z.json
+    // via qs.parse on the last segment, so they need no rewrite.)
     if (!/\/subtitles\/[^/]+\/[^/]+\.json$/i.test(pathPart)) return false;
 
     const params = new URLSearchParams(queryPart);

@@ -6,18 +6,18 @@ Target: StremioSubMaker v1.4.88. Nuvio facts below come from reading current sou
 
 ## 0. TL;DR
 
-| # | Change | Fixes | Priority |
-|---|--------|-------|----------|
-| 1 | Detect Nuvio, bounded wait on `/translate`, partial-SRT fallback (never the loading placeholder) | #139 ("Not work in nuvio") | P0 |
-| 2 | Reformat `Make X` lang labels → `X (Make)` | Nuvio language parsing | P0 |
-| 3 | Accept Gemini `AQ.` keys + refresh dead model defaults | #154 #155 | P0 |
-| 4 | Parse NuvioTV's `&`-joined extras path segment | NuvioTV hash/filename features | P1 |
-| 5 | Cap provider search ~15s for Nuvio (its list timeout is 20s) | empty lists on slow providers | P1 |
-| 6 | Route background work through configured primary provider | #149 | P1 |
-| 7 | Gemini v3 thinkingLevel vs budget | #144 | P1 |
-| 8 | Serbian/legacy charset detection | #143 | P1 |
-| 9 | Enable gated parallel batches on ElfHosted + entry cache | #146 speed | P1 |
-| 10 | Forced flag in labels, provider rate-limit backoff, `und` cleanup | #147 #141 #142 #150 #50 | P2 |
+| # | Change | Fixes | Priority | Status |
+|---|--------|-------|----------|--------|
+| 1 | Detect Nuvio, bounded wait on `/translate`, partial-SRT fallback (never the loading placeholder) | #139 ("Not work in nuvio") | P0 | DONE |
+| 2 | Reformat `Make X` lang labels → `X (Make)` | Nuvio language parsing | P0 | DONE |
+| 3 | Accept Gemini `AQ.` keys + refresh dead model defaults | #154 #155 | P0 | DONE |
+| 4 | Parse NuvioTV's `&`-joined extras path segment | NuvioTV hash/filename features | P1 | VERIFIED — SDK router already parses path-segment extras via `qs.parse`; query-string variant normalized by `normalizeSubtitleQueryExtras()` |
+| 5 | Cap provider search ~15s for Nuvio (its list timeout is 20s) | empty lists on slow providers | P1 | (open) |
+| 6 | Route background work through configured primary provider | #149 | P1 | VERIFIED — SMDB translate, AutoSubs, embedded routes all go through `createTranslationProvider()` |
+| 7 | Gemini v3 thinkingLevel vs budget | #144 | P1 | DONE (fork) |
+| 8 | Serbian/legacy charset detection | #143 | P1 | DONE (fork) |
+| 9 | Enable gated parallel batches on ElfHosted + entry cache | #146 speed | P1 | DONE — ElfHosted cap (2 vs 5); entry cache (open) |
+| 10 | Forced flag in labels, provider rate-limit backoff, `und` cleanup | #147 #141 #142 #150 #50 | P2 | #147 DONE (fork); #141/#142/#150 (open); #50 = Android client-side rendering, no addon fix |
 
 ---
 
@@ -69,11 +69,15 @@ Target: StremioSubMaker v1.4.88. Nuvio facts below come from reading current sou
 
 ### A3. P1 — Extras normalization for NuvioTV
 
-- Extend `normalizeSubtitleQueryExtras()` ([`index.js:118`](../index.js)) to split a path segment
-  containing `&`/`=` into proper extras (it handles query-string form today; cover NuvioTV's
-  single-segment form explicitly).
-- NuvioMobile sends no extras: verify graceful degradation — skip xSync/xEmbed/SMDB/OS-hash entries
-  when `videoHash` absent, keep filename-less search working. Mostly verification + small guards.
+- **VERIFIED, no code change needed.** NuvioTV builds
+  `/subtitles/{type}/{id}/videoHash=x&videoSize=y&filename=z.json` (one `&`-joined path segment,
+  no `?`); SDK's [`getRouter.js`](../node_modules/stremio-addon-sdk/src/getRouter.js) already parses
+  the last path segment via `qs.parse` (`:extra?.json` route param), so `args.extra` is populated
+  natively. The addon's `normalizeSubtitleQueryExtras()` ([`index.js:118`](../index.js)) only needs
+  to cover the query-string variant (`?filename=...`), which it already does. A clarifying comment
+  was added there.
+- NuvioMobile sends no extras: verified graceful degradation — xSync/xEmbed/SMDB/OS-hash entries
+  are skipped when `videoHash` absent, filename-less search keeps working.
 
 ### A4. P1 — Search latency budget
 
@@ -97,21 +101,21 @@ Target: StremioSubMaker v1.4.88. Nuvio facts below come from reading current sou
 
 ## B. Optimizations + GitHub issue triage (25 open)
 
-| Issue | Problem | Fix | Where | Pri |
-|---|---|---|---|---|
-| #139 | Nuvio shows "processing" forever | → A1 | subtitles.js, index.js | P0 |
-| #154/#155 | Gemini keys starting `AQ.` rejected; deprecated models 404 | Accept `AQ.` prefix in key validation; remove/replace dead pinned model names | [`public/config.js`](../public/config.js) `validateGeminiApiKey`, [`src/utils/config.js`](../src/utils/config.js) | P0 |
-| #149 | Background work hardcodes Gemini → 429 even when OpenRouter is primary | Route background/embedded tasks through configured primary provider; skip when provider absent | [`index.js`](../index.js) background paths, [`translationProviderFactory.js`](../src/services/translationProviderFactory.js) | P1 |
-| #146 | Slow translation | → section C speed | — | P1 |
-| #144 | Gemini v3 models need `thinkingLevel`, not `thinkingBudget` | Per-model generation config mapping in [`gemini.js`](../src/services/gemini.js) | gemini.js | P1 |
-| #143 | Serbian charset corruption | Add Windows-1250/ISO-8859-5 heuristics + per-language priors to [`encodingDetector.js`](../src/utils/encodingDetector.js) | encodingDetector.js | P1 |
-| #147 | Forced subs not flagged | Surface `forced` in lang label (`French (forced)`), keep flag in id | [`subtitleFlags.js`](../src/utils/subtitleFlags.js), subtitles.js | P2 |
-| #141/#142/#150 | SubDL Cloudflare, OS.com quota, Wyzie rate limits | Exponential backoff + shared negative cache via [`rateLimitRedisStore.js`](../src/utils/rateLimitRedisStore.js); extend existing `providerAuthFailureCache` to 429s | subdl.js, opensubtitles*.js, wyzieSubs.js | P2 |
-| #151 | Missing Make option in some flows | Same builders as A2; ensure Make entry always emitted for configured target langs | subtitles.js | P2 |
-| #50 | `Unknown (und)` entries | Drop or properly label `und` in `finalizeSubtitleResults()` | subtitles.js | P2 |
-| #121 | Stremio Kai | Detection already exists (`x-stremio-kai` in stremioClientIdentity.js); verify/whitelist behavior | stremioClientIdentity.js | P2 |
-| #117 | Embedded subs on Android | Client-side limitation — document, no addon fix | docs | P3 |
-| #11 #16 #47 #52 #89 #123 #140 #148 #152 | Mixed config/UX | Triage individually | — | P3 |
+| Issue | Problem | Fix | Where | Pri | Status |
+|---|---|---|---|---|---|
+| #139 | Nuvio shows "processing" forever | → A1 | subtitles.js, index.js | P0 | DONE |
+| #154/#155 | Gemini keys starting `AQ.` rejected; deprecated models 404 | Accept `AQ.` prefix in key validation; remove/replace dead pinned model names | [`public/config.js`](../public/config.js) `validateGeminiApiKey`, [`src/utils/config.js`](../src/utils/config.js) | P0 | DONE |
+| #149 | Background work hardcodes Gemini → 429 even when OpenRouter is primary | Route background/embedded tasks through configured primary provider; skip when provider absent | [`index.js`](../index.js) background paths, [`translationProviderFactory.js`](../src/services/translationProviderFactory.js) | P1 | DONE (SMDB/AutoSubs/embedded route through provider factory) |
+| #146 | Slow translation | → section C speed | — | P1 | PARTIAL — ElfHosted parallel cap landed; entry cache still off by default |
+| #144 | Gemini v3 models need `thinkingLevel`, not `thinkingBudget` | Per-model generation config mapping in [`gemini.js`](../src/services/gemini.js) | gemini.js | P1 | DONE (thinkingLevel wired through config/validation/factory) |
+| #143 | Serbian charset corruption | Add Windows-1250/ISO-8859-2 heuristics + Latin/Cyrillic script-dominance validation to [`encodingDetector.js`](../src/utils/encodingDetector.js) | encodingDetector.js | P1 | DONE |
+| #147 | Forced subs not flagged | Surface `forced` in lang label (`French (forced)`), keep flag in id | [`subtitleFlags.js`](../src/utils/subtitleFlags.js), subtitles.js | P2 | DONE — `isForcedSubtitle`/`inferForcedFromName` + `(forced)` label in entry builder |
+| #141/#142/#150 | SubDL Cloudflare, OS.com quota, Wyzie rate limits | Exponential backoff + shared negative cache via [`rateLimitRedisStore.js`](../src/utils/rateLimitRedisStore.js); extend existing `providerAuthFailureCache` to 429s | subdl.js, opensubtitles*.js, wyzieSubs.js | P2 | open |
+| #151 | Missing Make option in some flows | Same builders as A2; ensure Make entry always emitted for configured target langs | subtitles.js | P2 | open |
+| #50 | `Unknown (und)` entries | Android client limitation — a `lang` that is not a parseable code renders as "Unknown (und)". Addon already ships human labels ("Make Vietnamese"); code-first Nuvio labels (A2) cover Nuvio. | — | P2 | VERIFIED — no addon code change needed |
+| #121 | Stremio Kai | Detection already exists (`x-stremio-kai` in stremioClientIdentity.js); verify/whitelist behavior | stremioClientIdentity.js | P2 | open |
+| #117 | Embedded subs on Android | Client-side limitation — document, no addon fix | docs | P3 | — |
+| #11 #16 #47 #52 #89 #123 #140 #148 #152 | Mixed config/UX | Triage individually | — | P3 | open |
 
 Not issue-bound optimizations:
 - Entry-level translation cache (`CACHE_TRANSLATIONS`) is off by default → enable it; repeat hits

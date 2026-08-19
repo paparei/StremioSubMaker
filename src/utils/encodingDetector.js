@@ -58,10 +58,16 @@ const LANGUAGE_ENCODING_HINTS = {
   bg: ['windows-1251'],
   bul: ['windows-1251'],
   bulgarian: ['windows-1251'],
-  // Serbian (Cyrillic)
-  sr: ['windows-1251'],
-  srp: ['windows-1251'],
-  serbian: ['windows-1251'],
+  // Serbian — both scripts in common use. Latin first: windows-1250/iso-8859-2 decode
+  // š č đ ž cleanly; Cyrillic (windows-1251) is still reached — chardet reports cp1251
+  // as plausible (direct decode) and the replacement-ratio gate skips the Latin attempts
+  // on dense Cyrillic content.
+  sr: ['windows-1250', 'iso-8859-2', 'windows-1251'],
+  srp: ['windows-1250', 'iso-8859-2', 'windows-1251'],
+  serbian: ['windows-1250', 'iso-8859-2', 'windows-1251'],
+  // Serbian (Latin script) explicit forms — avoids the Cyrillic script validation below
+  'sr-latn': ['windows-1250', 'iso-8859-2'],
+  'sr-latin': ['windows-1250', 'iso-8859-2'],
   // Polish
   pl: ['windows-1250', 'iso-8859-2'],
   pol: ['windows-1250', 'iso-8859-2'],
@@ -186,9 +192,13 @@ function validateDecodedForLanguage(decoded, langHint) {
     bg: /[\u0400-\u04FF]/,
     bul: /[\u0400-\u04FF]/,
     bulgarian: /[\u0400-\u04FF]/,
-    sr: /[\u0400-\u04FF]/,
-    srp: /[\u0400-\u04FF]/,
-    serbian: /[\u0400-\u04FF]/,
+    // Serbian has both Cyrillic (U+0400-U+04FF) and Latin scripts; accept either so
+    // Latin Serbian (š č đ ž, U+0100-U+017F + U+0218-U+021B) validates too.
+    sr: /[\u0400-\u04FF]|[\u0100-\u017F\u0218\u0219\u021A\u021B]/,
+    srp: /[\u0400-\u04FF]|[\u0100-\u017F\u0218\u0219\u021A\u021B]/,
+    serbian: /[\u0400-\u04FF]|[\u0100-\u017F\u0218\u0219\u021A\u021B]/,
+    'sr-latn': /[\u0100-\u017F\u0218\u0219\u021A\u021B]/,
+    'sr-latin': /[\u0100-\u017F\u0218\u0219\u021A\u021B]/,
     // Thai script: U+0E00-U+0E7F
     th: /[\u0E00-\u0E7F]/,
     tha: /[\u0E00-\u0E7F]/,
@@ -197,6 +207,10 @@ function validateDecodedForLanguage(decoded, langHint) {
 
   const expectedPattern = scriptChecks[normalized] || scriptChecks[base];
   if (!expectedPattern) return true; // No script check for this language
+
+  // Serbian uses both Cyrillic and Latin scripts; detect which one the content is in.
+  const isSerbian = ['sr', 'srp', 'serbian'].includes(normalized)
+    || ['sr', 'srp', 'serbian'].includes(base);
 
   // Strip SRT formatting (timecodes, numbers, blank lines) to check only text content
   const textOnly = decoded
@@ -207,6 +221,15 @@ function validateDecodedForLanguage(decoded, langHint) {
 
   // If there's meaningful non-ASCII text, check if it contains expected script characters
   if (textOnly.length > 5) {
+    // Serbian script dominance: Cyrillic content must decode with Cyrillic present (a wrong
+    // cp1250 decode yields pure Latin-extended garbage), while Latin Serbian (š č đ ž) has
+    // no Cyrillic at all.
+    if (isSerbian) {
+      const cyrCount = (textOnly.match(/[\u0400-\u04FF]/g) || []).length;
+      const latCount = (textOnly.match(/[\u0100-\u017F\u0218\u0219\u021A\u021B]/g) || []).length;
+      if (cyrCount > 0) return cyrCount >= latCount;
+      return latCount > 0;
+    }
     return expectedPattern.test(textOnly);
   }
 

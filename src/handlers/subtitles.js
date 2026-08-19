@@ -28,7 +28,7 @@ const { StorageFactory, StorageAdapter } = require('../storage');
 const { getCached: getDownloadCached, saveCached: saveDownloadCached } = require('../utils/downloadCache');
 const log = require('../utils/logger');
 const { handleCaughtError } = require('../utils/errorClassifier');
-const { isHearingImpairedSubtitle } = require('../utils/subtitleFlags');
+const { isHearingImpairedSubtitle, isForcedSubtitle, inferForcedFromName } = require('../utils/subtitleFlags');
 const { generateCacheKeys } = require('../utils/cacheKeys');
 const { deduplicateSubtitles, logDeduplicationStats } = require('../utils/subtitleDeduplication');
 const { version } = require('../utils/version');
@@ -3216,9 +3216,13 @@ function createSubtitleHandler(config) {
             ? 'Spanish (LA)'
             : sub.languageCode;
 
+          // Mark forced/foreign-parts subtitles so players can auto-select them correctly
+          const forcedDetected = isForcedSubtitle(sub) || inferForcedFromName(sub.name);
+          const lang = forcedDetected ? `${displayLang} (forced)` : displayLang;
+
           const subtitle = {
             id: `${sub.fileId}`,
-            lang: displayLang,
+            lang,
             url: `{{ADDON_URL}}/${subtitleRouteBase}/${toPathSegment(sub.fileId)}/${toPathSegment(sub.languageCode)}${urlExtension}`
           };
 
