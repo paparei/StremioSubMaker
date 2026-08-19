@@ -57,6 +57,34 @@ and run:
 docker compose up -d
 ```
 
+## Troubleshooting
+
+### `ERROR: docker: 'docker buildx build' requires 1 argument`
+
+Your server has the old standalone `docker-compose` (v1), which mishandles `build: .`.
+Two fixes, pick one:
+
+**Fix 1 — use the Compose v2 plugin (space, no hyphen):**
+```bash
+docker compose version          # must print v2.x
+docker compose up -d --build
+```
+
+**Fix 2 — build the image yourself, then start without --build:**
+```bash
+docker build -t submaker:nuvio .
+```
+Then in `docker-compose.yaml`, add an `image:` line right above `build: .`:
+```yaml
+  submaker:
+    image: submaker:nuvio
+    build: .
+```
+Then start without building:
+```bash
+docker-compose up -d
+```
+
 ## Important
 
 - Keep your existing volumes (especially `encryption-key` / `keys` and `redis-data`) —
