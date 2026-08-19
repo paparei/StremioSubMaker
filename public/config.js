@@ -9812,6 +9812,9 @@ Translate to {target_language}.`;
             // Populate advanced model dropdown with ALL models (no filtering, no auto-selection)
             await populateAdvancedModels(models);
 
+            // Also surface fresh API models in the main model select so it never shows only outdated options
+            populateMainGeminiModelSelect(models);
+
         } catch (error) {
             if (statusDiv) {
                 statusDiv.innerHTML = '✗ Failed to fetch models. Check your API key.';
@@ -9878,8 +9881,44 @@ Translate to {target_language}.`;
                 addedModels.add(model.name);
             }
         });
+    }
 
+    // Append API-fetched models to the main (base) model select so it always shows the latest options.
+    // Preserves the default-selected and user-selected values; drops any option not on the API list
+    // (e.g. retired preview models) unless it is currently selected by the user.
+    function populateMainGeminiModelSelect(models) {
+        const select = document.getElementById('geminiModel');
+        if (!select || !Array.isArray(models)) return;
 
+        const apiNames = new Set(models.map(model => model.name).filter(Boolean));
+        const removedSelected = [...select.options].some(
+            option => option.selected && !apiNames.has(option.value)
+        );
+
+        // Remove stale options from the API list (outdated/hardcoded models)
+        [...select.options].forEach(option => {
+            if (apiNames.has(option.value)) {
+                apiNames.delete(option.value);
+            } else if (!option.selected) {
+                option.remove();
+            }
+        });
+
+        // Append any API models that don't exist yet
+        models.forEach(model => {
+            if (apiNames.has(model.name)) {
+                const option = document.createElement('option');
+                option.value = model.name;
+                option.textContent = model.displayName || model.name;
+                select.appendChild(option);
+                apiNames.delete(model.name);
+            }
+        });
+
+        // Preserve the user's selection (or re-map it to the first API option if it was removed)
+        if (removedSelected && select.querySelector('option')) {
+            select.value = select.options[0].value;
+        }
     }
 
     function handleQuickAction(e) {
