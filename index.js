@@ -90,7 +90,8 @@ const { MAX_SESSION_BRIEF_BATCH, getSessionManager, stripInternalFlags } = requi
 const { runStartupValidation } = require('./src/utils/startupValidation');
 const { StorageUnavailableError } = require('./src/storage/errors');
 const { createRateLimitRedisStore } = require('./src/utils/rateLimitRedisStore');
-const { isBlockedCommunityV5Request, isStremioKaiRequest } = require('./src/utils/stremioClientIdentity');
+const { isBlockedCommunityV5Request, isStremioKaiRequest, isNuvioClient } = require('./src/utils/stremioClientIdentity');
+const { requestContext } = require('./src/utils/requestContext');
 const { loadLocale, getTranslator, DEFAULT_LANG } = require('./src/utils/i18n');
 const { incrementCounter, CACHE_PREFIXES, CACHE_TTLS } = require('./src/utils/sharedCache');
 const { loadChangelog } = require('./src/utils/changelog');
@@ -5188,7 +5189,10 @@ app.get('/addon/:config/translate/:sourceFileId/:targetLang', normalizeSubtitleF
         const queryForcesMobile = ['1', 'true', 'yes', 'on'].includes(mobileQuery);
         // Mobile mode is now ONLY enabled when explicitly configured or forced via query string
         // Automatic Android detection has been removed for consistency across all devices
-        const waitForFullTranslation = (config.mobileMode === true) || queryForcesMobile;
+        // Nuvio (TV/Mobile) downloads a subtitle URL once and never re-polls, so it must be
+        // served like mobile mode: wait (bounded) for the translation instead of a loading placeholder.
+        const isNuvio = isNuvioClient(req);
+        const waitForFullTranslation = (config.mobileMode === true) || queryForcesMobile || isNuvio;
 
         // Create deduplication key based on source file and target language
         const dedupKey = `translate:${configKey}:${sourceFileId}:${targetLang}`;
@@ -5248,7 +5252,7 @@ app.get('/addon/:config/translate/:sourceFileId/:targetLang', normalizeSubtitleF
         // NOTE: Use configStr (session token) here, NOT configKey (computed hash) - the cooldown is set
         // using the session token from req.params.config in the subtitle list response middleware
         const prefetchCooldown = checkStremioCommunityPrefetchCooldown(configStr, req);
-        if (prefetchCooldown.blocked) {
+        if (prefetchCooldown.blocked && !isNuvio) {
             log.debug(() => `[Translation] Blocked by prefetch cooldown: ${prefetchCooldown.reason} for ${sourceFileId}`);
             const cooldownMsg = createLoadingSubtitle(config?.uiLanguage || 'en');
             res.setHeader('Content-Type', 'text/plain; charset=utf-8');
@@ -5260,7 +5264,7 @@ app.get('/addon/:config/translate/:sourceFileId/:targetLang', normalizeSubtitleF
         // Burst Detection: Detect when Stremio/libmpv prefetches ALL translation URLs at once
         // This prevents starting multiple expensive translations during prefetch
         const burstCheck = checkTranslationBurst(configKey, sourceFileId, targetLang);
-        if (burstCheck.isBurst) {
+        if (burstCheck.isBurst && !isNuvio) {
             // This is part of a prefetch burst - return a "click to translate" message
             // The first request in the burst (firstSourceId) is allowed through
             log.debug(() => `[Translation] Burst detected: ${burstCheck.count} requests in ${TRANSLATION_BURST_WINDOW_MS}ms. Blocking prefetch for ${sourceFileId} (first was ${burstCheck.firstSourceId})`);
@@ -5274,7 +5278,7 @@ app.get('/addon/:config/translate/:sourceFileId/:targetLang', normalizeSubtitleF
         // Check if already in flight BEFORE logging to reduce confusion
         const isAlreadyInFlight = inFlightRequests.has(dedupKey);
 
-        if (isAlreadyInFlight && waitForFullTranslation) {
+        if (isAlreadyInFlight && waitForFullTranslation && !isNuvio) {
             // Don't keep piling up long-held connections in mobile mode; the first request will deliver the final SRT
             // IMPORTANT: Use 200 (not 202) and NO Retry-After header to prevent Stremio/libmpv from
             // continuously polling. 202 + Retry-After causes exponential request spam when libmpv
@@ -5365,6 +5369,16 @@ app.get('/addon/:config/translate/:sourceFileId/:targetLang', normalizeSubtitleF
                 }
             }
 
+            // No partial yet. Nuvio fetches once and never re-polls, so a loading placeholder
+            // would be stuck forever - serve a retryable notice instead.
+            if (isNuvio) {
+                log.debug(() => `[Translation] Nuvio duplicate with no partial yet, serving retry notice for ${sourceFileId}`);
+                const retryMsg = createTranslationErrorSubtitle('other', 'Translation is still in progress. Please select this subtitle again in a moment.', config?.uiLanguage || 'en');
+                res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+                res.setHeader('Content-Disposition', `attachment; filename="translating_${targetLang}.srt"`);
+                setSubtitleCacheHeaders(res, 'loading');
+                return res.send(retryMsg);
+            }
             // No partial yet, serve loading message
             log.debug(() => `[Translation] No partial found yet, serving loading message to duplicate request for ${sourceFileId}`);
             const loadingMsg = createLoadingSubtitle(config?.uiLanguage || 'en');
@@ -5380,6 +5394,7 @@ app.get('/addon/:config/translate/:sourceFileId/:targetLang', normalizeSubtitleF
         const subtitleContent = await deduplicate(dedupKey, () =>
             handleTranslation(sourceFileId, targetLang, config, {
                 waitForFullTranslation,
+                nuvioClient: isNuvio,
                 sourceFileId,
                 targetLanguage: targetLang,
                 filename: req.query.filename || req.query.file || req.query.name || '',
@@ -8302,7 +8317,8 @@ app.use('/addon/:config', async (req, res, next) => {
         }
 
         if (!router) return; // Storage unavailable response already sent upstream
-        router(req, res, next);
+        // Router is cached per config, so per-request client flags travel via AsyncLocalStorage
+        requestContext.run({ nuvio: isNuvioClient(req) }, () => router(req, res, next));
     } catch (error) {
         if (respondStorageUnavailable(res, error, '[Router]')) return;
         log.error(() => ['[Router] Error:', error]);

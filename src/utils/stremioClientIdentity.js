@@ -95,6 +95,14 @@ function hasStremioKaiUserAgent(req) {
   return valueIdentifiesStremioKai(userAgent) || valueIdentifiesStremioKai(brands);
 }
 
+// Nuvio (TV/Mobile) sends "User-Agent: Nuvio/<version>" on addon API calls.
+// Subtitle body downloads use a generic Chrome UA, so this only matches the
+// addon JSON endpoints (/subtitles/...), which is where decisions are made.
+function isNuvioClient(req) {
+  const userAgent = String(getHeader(req, 'user-agent') || '').trim();
+  return /^nuvio\b/i.test(userAgent);
+}
+
 function isStremioKaiRequest(req) {
   return hasExplicitStremioKaiHeader(req) || hasStremioKaiUserAgent(req);
 }
@@ -130,6 +138,7 @@ module.exports = {
   extractHostnameFromOrigin,
   hasExplicitStremioKaiHeader,
   isBlockedCommunityV5Request,
+  isNuvioClient,
   isStremioKaiRequest,
   normalizeOrigin
 };

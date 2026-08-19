@@ -239,7 +239,15 @@ const DEPRECATED_MODEL_NAMES = [
   'gemini-2.5-flash-latest',
   'gemini-pro-latest',
   'gemini-2.5-pro-latest',
-  'gemini-2.5-flash-preview-09-2025' // Renamed to gemini-2.5-flash
+  'gemini-2.5-flash-preview-09-2025', // Renamed to gemini-2.5-flash
+  // Legacy models that now 404 for newly-issued (AQ.) API keys (issue #155).
+  // Overriding them to the current default keeps new keys working.
+  'gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-1.5-flash-001',
+  'gemini-1.5-flash-002', 'gemini-1.5-flash-8b', 'gemini-1.5-flash-8b-latest',
+  'gemini-1.5-pro', 'gemini-1.5-pro-latest', 'gemini-1.5-pro-001', 'gemini-1.5-pro-002',
+  'gemini-2.0-flash', 'gemini-2.0-flash-001',
+  'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro',
+  'gemini-2.5-pro-preview-06-05'
 ];
 
 /**

@@ -17,7 +17,9 @@ async function executeParallelTranslation(engine, entries, targetLanguage, custo
         throw new Error('Invalid SRT content: no valid entries found');
     }
 
-    const CONCURRENCY_LIMIT = Math.max(1, Math.min(5, parseInt(engine.advancedSettings?.parallelBatchesCount) || 3));
+    // ElfHosted shares quota across users, so cap concurrency lower there.
+    const maxConcurrency = process.env.ELFHOSTED === 'true' ? 2 : 5;
+    const CONCURRENCY_LIMIT = Math.max(1, Math.min(maxConcurrency, parseInt(engine.advancedSettings?.parallelBatchesCount) || 3));
     const PARALLEL_BATCH_SIZE = 150; // Hardcoded optimal batch size for parallelism
 
     log.info(() => `[ParallelTranslation] Initiating parallel translation mode. Entries: ${entries.length}, Concurrency: ${CONCURRENCY_LIMIT}`);

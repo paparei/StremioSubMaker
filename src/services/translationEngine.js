@@ -157,6 +157,8 @@ class TranslationEngine {
       && typeof (this.gemini?.streamTranslateSubtitle) === 'function';
     this.maxTokensPerBatch = this.singleBatchMode ? SINGLE_BATCH_MAX_TOKENS_PER_CHUNK : MAX_TOKENS_PER_BATCH;
     this.advancedSettings = advancedSettings || {};
+    // Optional title context (film/show name) to improve name/tone consistency.
+    this.titleContext = typeof options.titleContext === 'string' ? options.titleContext.trim() : '';
 
     // Context settings (disabled by default)
     this.enableBatchContext = this.advancedSettings.enableBatchContext === true;
@@ -681,8 +683,9 @@ class TranslationEngine {
 
     let translatedEntries = [];
 
-    // Parallel Batches Mode (Dev Mode specific, excluding ElfHosted)
-    if (this.advancedSettings?.parallelBatchesEnabled === true && process.env.ELFHOSTED !== 'true') {
+    // Parallel Batches Mode (Dev Mode specific; ElfHosted allowed with capped concurrency,
+    // see CONCURRENCY_LIMIT in parallelTranslation.js)
+    if (this.advancedSettings?.parallelBatchesEnabled === true) {
       this.translationStats.parallelBatchesUsed = true;
       translatedEntries = await executeParallelTranslation(this, entries, targetLanguage, customPrompt, onProgress);
     } else {
@@ -2250,7 +2253,11 @@ OUTPUT (EXACTLY ${expectedCount} numbered entries, NO OTHER TEXT):`;
    */
   addBatchHeader(prompt, batchIndex, totalBatches) {
     const header = `BATCH ${batchIndex + 1}/${totalBatches}`;
-    return `${header}\n\n${prompt}`;
+    // Title context (when known) improves consistency of names/tone across batches.
+    const titleLine = this.titleContext
+      ? `CONTEXT: These subtitles are from "${this.titleContext}". Keep character names, places, and tone consistent with this title.\n\n`
+      : '';
+    return `${header}\n\n${titleLine}${prompt}`;
   }
 
   /**

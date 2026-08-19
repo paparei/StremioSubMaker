@@ -37,6 +37,7 @@ const { getShared, setShared, incrementCounter, decrementCounter, getCounter, CA
 const { getEffectiveGeminiModel } = require('../utils/config');
 const { applyExplicitFilenameSeasonHint, hasExplicitSeasonEpisodeMismatch, resolveAnimeVideoInfo } = require('../utils/animeSearchResolver');
 const { buildTmdbToImdbWikidataQuery } = require('../utils/tmdbWikidata');
+const { isNuvioRequestContext } = require('../utils/requestContext');
 
 const fs = require('fs');
 const path = require('path');
@@ -88,6 +89,10 @@ function parsePositiveIntEnv(name, fallback) {
 const DEFAULT_SUBTITLE_HANG_GUARD_MS = 60 * 1000;
 const SUBTITLE_SEARCH_HARD_TIMEOUT_MS = parsePositiveIntEnv('SUBTITLE_SEARCH_HARD_TIMEOUT_MS', DEFAULT_SUBTITLE_HANG_GUARD_MS);
 const SUBTITLE_SEARCH_STALE_GRACE_MS = parsePositiveIntEnv('SUBTITLE_SEARCH_STALE_GRACE_MS', 5000);
+// Nuvio (TV/Mobile) HTTP budgets: OkHttp gives ~25s per call, so keep search and
+// translation waits under that or the client aborts and shows nothing.
+const NUVIO_SEARCH_TIMEOUT_MS = parsePositiveIntEnv('NUVIO_SEARCH_TIMEOUT_MS', 15000);
+const NUVIO_WAIT_TIMEOUT_MS = parsePositiveIntEnv('NUVIO_WAIT_TIMEOUT_MS', 18000);
 
 function resolveConfiguredSubtitleProviderTimeoutMs(config) {
   const seconds = Number.parseInt(config?.subtitleProviderTimeout, 10);
@@ -1478,6 +1483,19 @@ function getMobileWaitTimeoutMs(config) {
   return clampedSeconds * 1000;
 }
 
+// Nuvio downloads a subtitle URL once and never re-polls. When a bounded wait times
+// out, serve whatever partial translation exists instead of a bare error placeholder.
+async function nuvioWaitTimeoutFallback(runtimeKey, uiLanguage) {
+  try {
+    const partial = await readFromPartialCache(runtimeKey);
+    if (partial && typeof partial.content === 'string' && partial.content.length > 0) {
+      log.debug(() => `[Translation] Nuvio wait timeout: serving partial (${partial.content.length} chars) for key=${runtimeKey}`);
+      return partial.content;
+    }
+  } catch (_) { }
+  return createTranslationErrorSubtitle('other', 'Translation did not finish in time. Please retry.', uiLanguage || 'en');
+}
+
 // Helper: fetch final translation/error from cache respecting bypass isolation
 async function getFinalCachedTranslation(storageKey, bypassKey, { bypass, bypassEnabled, userHash, allowPermanent, uiLanguage }) {
   const lang = uiLanguage || 'en';
@@ -2859,7 +2877,7 @@ function createSubtitleHandler(config) {
 
       // Collect subtitles from all enabled providers with deduplication
       let openSubsAuthFailed = false; // track OpenSubtitles auth failures to append UX hint entries later
-      const providerSearchHardTimeoutMs = Math.max(
+      const providerSearchHardTimeoutMs = isNuvioRequestContext() ? NUVIO_SEARCH_TIMEOUT_MS : Math.max(
         configuredProviderTimeoutMs,
         SUBTITLE_SEARCH_HARD_TIMEOUT_MS
       );
@@ -3319,6 +3337,9 @@ function createSubtitleHandler(config) {
 
         // For each target language, create a translation entry for each source subtitle
         // Translation entries are created from the already-limited source subtitles (16 per source language)
+        // Nuvio clients need code-first lang tags (e.g. "vi-Make") so their language
+        // matching/grouping works; Stremio keeps the human-readable labels.
+        const nuvioLabels = isNuvioRequestContext();
         for (const targetLang of targetLangsForTranslation) {
           const baseName = getLanguageName(targetLang) || targetLang;
           const displayName = `Make ${baseName}`;
@@ -3337,7 +3358,7 @@ function createSubtitleHandler(config) {
 
             const translationEntry = {
               id: `translate_${sourceSub.fileId}_to_${targetLang}`,
-              lang: displayName, // Display as "Make Language" in Stremio UI
+              lang: nuvioLabels ? `${targetLang}-Make` : displayName, // "Make Language" in Stremio, code-first tag for Nuvio
               url: `{{ADDON_URL}}/translate/${sourceSub.fileId}/${targetLang}${translationUrlExtension}${translateQuery}`
             };
             translationEntries.push(translationEntry);
@@ -3362,7 +3383,7 @@ function createSubtitleHandler(config) {
             for (const sourceSub of sourceSubtitles) {
               learnEntries.push({
                 id: `learn_${sourceSub.fileId}_to_${learnLang}`,
-                lang: displayName,
+                lang: nuvioLabels ? `${learnLang}-Learn` : displayName,
                 url: `{{ADDON_URL}}/learn/${sourceSub.fileId}/${learnLang}.vtt`
               });
             }
@@ -3460,7 +3481,7 @@ function createSubtitleHandler(config) {
           const langName = getLanguageName(langCode) || langCode;
           xSyncEntries.push({
             id: `xsync_${seenKey}`,
-            lang: `xSync ${langName}`,
+            lang: nuvioLabels ? `${langCode}-xSync` : `xSync ${langName}`,
             url: `{{ADDON_URL}}/xsync/${toPathSegment(entry.hash)}/${toPathSegment(langCode)}/${toPathSegment(syncedSub.sourceSubId)}`
           });
         }
@@ -3539,7 +3560,7 @@ function createSubtitleHandler(config) {
           const langName = getLanguageName(langCode) || langCode;
           autoEntries.push({
             id: `auto_${seenKey}`,
-            lang: `Auto ${langName}`,
+            lang: nuvioLabels ? `${langCode}-Auto` : `Auto ${langName}`,
             url: `{{ADDON_URL}}/auto/${toPathSegment(entry.hash)}/${toPathSegment(langCode)}/${toPathSegment(sub.sourceSubId)}`
           });
         }
@@ -3573,7 +3594,7 @@ function createSubtitleHandler(config) {
               const langName = getLanguageName(normalizedTarget) || getLanguageName(targetCode) || targetCode;
               xEmbedEntries.push({
                 id: `xembed_${entry.cacheKey}`,
-                lang: `xEmbed (${langName})`,
+                lang: nuvioLabels ? `${normalizedTarget}-xEmbed` : `xEmbed (${langName})`,
                 url: `{{ADDON_URL}}/xembedded/${toPathSegment(hash)}/${toPathSegment(targetCode)}/${toPathSegment(entry.trackId)}`
               });
             }
@@ -3634,7 +3655,7 @@ function createSubtitleHandler(config) {
             const langName = getLanguageName(sub.languageCode) || sub.languageCode;
             smdbEntries.push({
               id: `smdb_${sub.videoHash}_${sub.languageCode}`,
-              lang: `SMDB (${langName})`,
+              lang: nuvioLabels ? `${sub.languageCode}-SMDB` : `SMDB (${langName})`,
               url: `{{ADDON_URL}}/smdb/${toPathSegment(sub.videoHash)}/${toPathSegment(sub.languageCode)}.srt`
             });
           }
@@ -4268,7 +4289,11 @@ async function handleTranslation(sourceFileId, targetLanguage, config, options =
     }
 
     const waitForFullTranslation = options.waitForFullTranslation === true;
-    const mobileWaitTimeoutMs = waitForFullTranslation ? getMobileWaitTimeoutMs(config) : null;
+    const isNuvioClientRequest = options.nuvioClient === true;
+    // Nuvio has a ~25s HTTP budget, so its wait is capped far below the mobile clamp.
+    const mobileWaitTimeoutMs = waitForFullTranslation
+      ? (isNuvioClientRequest ? NUVIO_WAIT_TIMEOUT_MS : getMobileWaitTimeoutMs(config))
+      : null;
 
     // If translating an xEmbed original, pull source directly from embedded cache
     let embeddedSource = null;
@@ -4546,7 +4571,9 @@ async function handleTranslation(sourceFileId, targetLanguage, config, options =
           }
 
           log.warn(() => `[Translation] Mobile mode wait timed out without final result for key=${cacheKey}`);
-          return createTranslationErrorSubtitle('other', 'Translation did not finish in time. Please retry.', config.uiLanguage || 'en');
+          return isNuvioClientRequest
+            ? await nuvioWaitTimeoutFallback(runtimeKey, config.uiLanguage)
+            : createTranslationErrorSubtitle('other', 'Translation did not finish in time. Please retry.', config.uiLanguage || 'en');
         } else {
           // DON'T WAIT for completion - immediately return available partials instead
           // Check final cache first (bypass/permanent) in case it just completed
@@ -4652,7 +4679,9 @@ async function handleTranslation(sourceFileId, targetLanguage, config, options =
           }
 
           log.warn(() => `[Translation] Mobile mode wait timed out on status-only path for key=${cacheKey}`);
-          return createTranslationErrorSubtitle('other', 'Translation did not finish in time. Please retry.', config.uiLanguage || 'en');
+          return isNuvioClientRequest
+            ? await nuvioWaitTimeoutFallback(runtimeKey, config.uiLanguage)
+            : createTranslationErrorSubtitle('other', 'Translation did not finish in time. Please retry.', config.uiLanguage || 'en');
         } else {
           try {
             const finalNow = await getFinalCachedTranslation(
@@ -4889,7 +4918,9 @@ async function handleTranslation(sourceFileId, targetLanguage, config, options =
       }
 
       log.warn(() => `[Translation] Mobile mode wait timed out for new translation key=${cacheKey}`);
-      return createTranslationErrorSubtitle('other', 'Translation did not finish in time. Please retry.', config.uiLanguage || 'en');
+      return isNuvioClientRequest
+        ? await nuvioWaitTimeoutFallback(runtimeKey, config.uiLanguage)
+        : createTranslationErrorSubtitle('other', 'Translation did not finish in time. Please retry.', config.uiLanguage || 'en');
     }
 
     // Return loading message immediately (desktop/standard behavior)
@@ -5072,6 +5103,19 @@ async function performTranslation(sourceFileId, targetLanguage, config, { cacheK
     // Get language names for better translation context
     const targetLangName = getLanguageName(targetLanguage) || targetLanguage;
 
+    // Best-effort title context for translation quality (cache-only, adds no latency).
+    // Falls back to the cached source subtitle name when no Cinemeta title is known.
+    const titleContext = (() => {
+      try {
+        const metaKey = `${config.__configHash || config.userHash || 'default'}:${sourceFileId}`;
+        const meta = translationSourceMeta.get(metaKey) || {};
+        const videoId = meta.videoId || config?.lastStream?.videoId || config?.videoId || '';
+        const cached = videoId ? historyTitleCache.get(videoId) : null;
+        if (cached?.title && cached.title !== videoId) return cached.title;
+        return meta.title || '';
+      } catch (_) { return ''; }
+    })();
+
     // Initialize translation provider (Gemini default, others when enabled)
     if (translatedContent === undefined) {
     const { provider, providerName: _providerName, model, fallbackProviderName } = await createTranslationProvider(config);
@@ -5102,7 +5146,8 @@ async function performTranslation(sourceFileId, targetLanguage, config, { cacheK
         singleBatchMode: config.singleBatchMode === true,
         providerName,
         fallbackProviderName,
-        keyRotationConfig
+        keyRotationConfig,
+        titleContext
       }
     );
 
