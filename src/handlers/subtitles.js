@@ -3356,9 +3356,13 @@ function createSubtitleHandler(config) {
               });
             } catch (_) { /* ignore */ }
 
+            // NuvioTV renders addon subtitle rows as: addonName chip, languageCodeToName(normalizeLanguageCode(lang)),
+            // and the subtitle id as small meta text. The lang field is never shown raw, so the code-first tag
+            // (e.g. "fr-Make") would render as just "French" and the "Make" word would be invisible. Nuvio also
+            // treats the id as opaque (shown verbatim), so "Make French" goes in the id for Nuvio clients.
             const translationEntry = {
-              id: `translate_${sourceSub.fileId}_to_${targetLang}`,
-              lang: nuvioLabels ? `${targetLang}-Make` : displayName, // "Make Language" in Stremio, code-first tag for Nuvio
+              id: nuvioLabels ? `Make ${baseName}` : `translate_${sourceSub.fileId}_to_${targetLang}`,
+              lang: nuvioLabels ? `${targetLang}-Make` : displayName, // code-first tag keeps Nuvio grouping/matching working
               url: `{{ADDON_URL}}/translate/${sourceSub.fileId}/${targetLang}${translationUrlExtension}${translateQuery}`
             };
             translationEntries.push(translationEntry);
@@ -3382,7 +3386,7 @@ function createSubtitleHandler(config) {
             const displayName = `Learn ${baseName}`;
             for (const sourceSub of sourceSubtitles) {
               learnEntries.push({
-                id: `learn_${sourceSub.fileId}_to_${learnLang}`,
+                id: nuvioLabels ? `Learn ${baseName}` : `learn_${sourceSub.fileId}_to_${learnLang}`,
                 lang: nuvioLabels ? `${learnLang}-Learn` : displayName,
                 url: `{{ADDON_URL}}/learn/${sourceSub.fileId}/${learnLang}.vtt`
               });
@@ -3480,7 +3484,7 @@ function createSubtitleHandler(config) {
           seenSync.add(seenKey);
           const langName = getLanguageName(langCode) || langCode;
           xSyncEntries.push({
-            id: `xsync_${seenKey}`,
+            id: nuvioLabels ? `xSync ${langName}` : `xsync_${seenKey}`,
             lang: nuvioLabels ? `${langCode}-xSync` : `xSync ${langName}`,
             url: `{{ADDON_URL}}/xsync/${toPathSegment(entry.hash)}/${toPathSegment(langCode)}/${toPathSegment(syncedSub.sourceSubId)}`
           });
@@ -3559,7 +3563,7 @@ function createSubtitleHandler(config) {
           seenAuto.add(seenKey);
           const langName = getLanguageName(langCode) || langCode;
           autoEntries.push({
-            id: `auto_${seenKey}`,
+            id: nuvioLabels ? `Auto ${langName}` : `auto_${seenKey}`,
             lang: nuvioLabels ? `${langCode}-Auto` : `Auto ${langName}`,
             url: `{{ADDON_URL}}/auto/${toPathSegment(entry.hash)}/${toPathSegment(langCode)}/${toPathSegment(sub.sourceSubId)}`
           });
@@ -3593,7 +3597,7 @@ function createSubtitleHandler(config) {
 
               const langName = getLanguageName(normalizedTarget) || getLanguageName(targetCode) || targetCode;
               xEmbedEntries.push({
-                id: `xembed_${entry.cacheKey}`,
+                id: nuvioLabels ? `xEmbed ${langName}` : `xembed_${entry.cacheKey}`,
                 lang: nuvioLabels ? `${normalizedTarget}-xEmbed` : `xEmbed (${langName})`,
                 url: `{{ADDON_URL}}/xembedded/${toPathSegment(hash)}/${toPathSegment(targetCode)}/${toPathSegment(entry.trackId)}`
               });
@@ -3654,7 +3658,7 @@ function createSubtitleHandler(config) {
           for (const sub of smdbSubs) {
             const langName = getLanguageName(sub.languageCode) || sub.languageCode;
             smdbEntries.push({
-              id: `smdb_${sub.videoHash}_${sub.languageCode}`,
+              id: nuvioLabels ? `SMDB ${langName}` : `smdb_${sub.videoHash}_${sub.languageCode}`,
               lang: nuvioLabels ? `${sub.languageCode}-SMDB` : `SMDB (${langName})`,
               url: `{{ADDON_URL}}/smdb/${toPathSegment(sub.videoHash)}/${toPathSegment(sub.languageCode)}.srt`
             });
