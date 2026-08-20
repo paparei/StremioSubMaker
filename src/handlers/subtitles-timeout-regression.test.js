@@ -5,7 +5,8 @@ const path = require('node:path');
 
 const {
   collectProviderSearchResults,
-  deduplicateSearch
+  deduplicateSearch,
+  getActionSubtitleLang
 } = require('./subtitles');
 
 function makeSubtitle(id, languageCode) {
@@ -17,6 +18,12 @@ function makeSubtitle(id, languageCode) {
     provider: 'test'
   };
 }
+
+test('action subtitles use real Stremio language codes and retain Nuvio action tags', () => {
+  assert.equal(getActionSubtitleLang('vi', 'Make'), 'vie');
+  assert.equal(getActionSubtitleLang('es-MX', 'Make'), 'spn');
+  assert.equal(getActionSubtitleLang('vi', 'Make', true), 'vi-Make');
+});
 
 test('subtitle handler does not define route/cache fallback timeout knobs', () => {
   const source = fs.readFileSync(path.join(__dirname, 'subtitles.js'), 'utf8');
