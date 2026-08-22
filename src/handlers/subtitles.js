@@ -2653,11 +2653,12 @@ function rankSubtitlesByFilename(subtitles, streamFilename, videoInfo = null) {
  * @param {Object} config - Addon configuration
  * @returns {Function} - Handler function
  */
-// ponytail: Stremio Android only renders real language codes; restore rich lang labels
-// when its client implements the addon-protocol text fallback.
-function getActionSubtitleLang(languageCode, action, nuvioLabels = false) {
+function getActionSubtitleMetadata(languageCode, action, nuvioLabels = false) {
   const rawCode = String(languageCode || '').trim();
-  return nuvioLabels ? `${rawCode}-${action}` : normalizeLanguageCode(rawCode);
+  return {
+    lang: nuvioLabels ? `${rawCode}-${action}` : normalizeLanguageCode(rawCode),
+    label: `${action} ${getLanguageName(rawCode) || rawCode}`
+  };
 }
 
 function createSubtitleHandler(config) {
@@ -3371,7 +3372,7 @@ function createSubtitleHandler(config) {
             // treats the id as opaque (shown verbatim), so "Make French" goes in the id for Nuvio clients.
             const translationEntry = {
               id: nuvioLabels ? `Make ${baseName}` : `translate_${sourceSub.fileId}_to_${targetLang}`,
-              lang: getActionSubtitleLang(targetLang, 'Make', nuvioLabels),
+              ...getActionSubtitleMetadata(targetLang, 'Make', nuvioLabels),
               url: `{{ADDON_URL}}/translate/${sourceSub.fileId}/${targetLang}${translationUrlExtension}${translateQuery}`
             };
             translationEntries.push(translationEntry);
@@ -3396,7 +3397,7 @@ function createSubtitleHandler(config) {
             for (const sourceSub of sourceSubtitles) {
               learnEntries.push({
                 id: nuvioLabels ? `Learn ${baseName}` : `learn_${sourceSub.fileId}_to_${learnLang}`,
-                lang: getActionSubtitleLang(learnLang, 'Learn', nuvioLabels),
+                ...getActionSubtitleMetadata(learnLang, 'Learn', nuvioLabels),
                 url: `{{ADDON_URL}}/learn/${sourceSub.fileId}/${learnLang}.vtt`
               });
             }
@@ -3494,7 +3495,7 @@ function createSubtitleHandler(config) {
           const langName = getLanguageName(langCode) || langCode;
           xSyncEntries.push({
             id: nuvioLabels ? `xSync ${langName}` : `xsync_${seenKey}`,
-            lang: getActionSubtitleLang(langCode, 'xSync', nuvioLabels),
+            ...getActionSubtitleMetadata(langCode, 'xSync', nuvioLabels),
             url: `{{ADDON_URL}}/xsync/${toPathSegment(entry.hash)}/${toPathSegment(langCode)}/${toPathSegment(syncedSub.sourceSubId)}`
           });
         }
@@ -3573,7 +3574,7 @@ function createSubtitleHandler(config) {
           const langName = getLanguageName(langCode) || langCode;
           autoEntries.push({
             id: nuvioLabels ? `Auto ${langName}` : `auto_${seenKey}`,
-            lang: getActionSubtitleLang(langCode, 'Auto', nuvioLabels),
+            ...getActionSubtitleMetadata(langCode, 'Auto', nuvioLabels),
             url: `{{ADDON_URL}}/auto/${toPathSegment(entry.hash)}/${toPathSegment(langCode)}/${toPathSegment(sub.sourceSubId)}`
           });
         }
@@ -3607,7 +3608,7 @@ function createSubtitleHandler(config) {
               const langName = getLanguageName(normalizedTarget) || getLanguageName(targetCode) || targetCode;
               xEmbedEntries.push({
                 id: nuvioLabels ? `xEmbed ${langName}` : `xembed_${entry.cacheKey}`,
-                lang: getActionSubtitleLang(normalizedTarget, 'xEmbed', nuvioLabels),
+                ...getActionSubtitleMetadata(normalizedTarget, 'xEmbed', nuvioLabels),
                 url: `{{ADDON_URL}}/xembedded/${toPathSegment(hash)}/${toPathSegment(targetCode)}/${toPathSegment(entry.trackId)}`
               });
             }
@@ -3668,7 +3669,7 @@ function createSubtitleHandler(config) {
             const langName = getLanguageName(sub.languageCode) || sub.languageCode;
             smdbEntries.push({
               id: nuvioLabels ? `SMDB ${langName}` : `smdb_${sub.videoHash}_${sub.languageCode}`,
-              lang: getActionSubtitleLang(sub.languageCode, 'SMDB', nuvioLabels),
+              ...getActionSubtitleMetadata(sub.languageCode, 'SMDB', nuvioLabels),
               url: `{{ADDON_URL}}/smdb/${toPathSegment(sub.videoHash)}/${toPathSegment(sub.languageCode)}.srt`
             });
           }
@@ -6386,7 +6387,7 @@ module.exports = {
   createSubDLCloudflareBlockedSubtitle,
   createInvalidSubtitleMessage,
   filterSubtitlesByRequestedLanguages,
-  getActionSubtitleLang,
+  getActionSubtitleMetadata,
   collectProviderSearchResults,
   deduplicateSearch,
   maybeConvertToSRT,

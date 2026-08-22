@@ -6,7 +6,7 @@ const path = require('node:path');
 const {
   collectProviderSearchResults,
   deduplicateSearch,
-  getActionSubtitleLang
+  getActionSubtitleMetadata
 } = require('./subtitles');
 
 function makeSubtitle(id, languageCode) {
@@ -19,10 +19,16 @@ function makeSubtitle(id, languageCode) {
   };
 }
 
-test('action subtitles use real Stremio language codes and retain Nuvio action tags', () => {
-  assert.equal(getActionSubtitleLang('vi', 'Make'), 'vie');
-  assert.equal(getActionSubtitleLang('es-MX', 'Make'), 'spn');
-  assert.equal(getActionSubtitleLang('vi', 'Make', true), 'vi-Make');
+test('action subtitles keep ISO language codes and visible labels across clients', () => {
+  assert.deepEqual(getActionSubtitleMetadata('vi', 'Make'), {
+    lang: 'vie',
+    label: 'Make Vietnamese'
+  });
+  assert.equal(getActionSubtitleMetadata('es-MX', 'Make').lang, 'spn');
+  assert.deepEqual(getActionSubtitleMetadata('vi', 'Make', true), {
+    lang: 'vi-Make',
+    label: 'Make Vietnamese'
+  });
 });
 
 test('subtitle handler does not define route/cache fallback timeout knobs', () => {
