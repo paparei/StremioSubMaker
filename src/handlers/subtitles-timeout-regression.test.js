@@ -19,15 +19,15 @@ function makeSubtitle(id, languageCode) {
   };
 }
 
-test('action subtitles keep ISO language codes and visible labels across clients', () => {
+test('action subtitles retain original Stremio names and Nuvio action tags', () => {
   assert.deepEqual(getActionSubtitleMetadata('vi', 'Make'), {
-    lang: 'vie',
-    label: 'Make Vietnamese'
+    lang: 'Make Vietnamese'
   });
-  assert.equal(getActionSubtitleMetadata('es-MX', 'Make').lang, 'spn');
+  assert.deepEqual(getActionSubtitleMetadata('eng', 'xEmbed'), {
+    lang: 'xEmbed (English)'
+  });
   assert.deepEqual(getActionSubtitleMetadata('vi', 'Make', true), {
-    lang: 'vi-Make',
-    label: 'Make Vietnamese'
+    lang: 'vi-Make'
   });
 });
 

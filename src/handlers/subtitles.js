@@ -2653,12 +2653,15 @@ function rankSubtitlesByFilename(subtitles, streamFilename, videoInfo = null) {
  * @param {Object} config - Addon configuration
  * @returns {Function} - Handler function
  */
+// ponytail: Stremio builds the language column from `lang`, not `label`; return to ISO codes
+// when clients provide a separate addon-action grouping field.
 function getActionSubtitleMetadata(languageCode, action, nuvioLabels = false) {
   const rawCode = String(languageCode || '').trim();
-  return {
-    lang: nuvioLabels ? `${rawCode}-${action}` : normalizeLanguageCode(rawCode),
-    label: `${action} ${getLanguageName(rawCode) || rawCode}`
-  };
+  const languageName = getLanguageName(rawCode) || rawCode;
+  const actionName = action === 'xEmbed' || action === 'SMDB'
+    ? `${action} (${languageName})`
+    : `${action} ${languageName}`;
+  return { lang: nuvioLabels ? `${rawCode}-${action}` : actionName };
 }
 
 function createSubtitleHandler(config) {

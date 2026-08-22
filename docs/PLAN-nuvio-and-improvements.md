@@ -9,7 +9,7 @@ Target: StremioSubMaker v1.4.88. Nuvio facts below come from reading current sou
 | # | Change | Fixes | Priority | Status |
 |---|--------|-------|----------|--------|
 | 1 | Detect Nuvio, bounded wait on `/translate`, partial-SRT fallback (never the loading placeholder) | #139 ("Not work in nuvio") | P0 | DONE |
-| 2 | Send ISO `lang` plus human-readable `label`; retain code-first Nuvio tags and IDs | Nuvio parsing + #50/#151 | P0 | DONE (fork) |
+| 2 | Preserve original Stremio action names; use code-first Nuvio tags and IDs | Nuvio parsing + #151 | P0 | DONE (fork) |
 | 3 | Accept Gemini `AQ.` keys + refresh dead model defaults | #154 #155 | P0 | DONE |
 | 4 | Parse NuvioTV's `&`-joined extras path segment | NuvioTV hash/filename features | P1 | VERIFIED — SDK router already parses path-segment extras via `qs.parse`; query-string variant normalized by `normalizeSubtitleQueryExtras()` |
 | 5 | Cap provider search ~15s for Nuvio (its list timeout is 20s) | empty lists on slow providers | P1 | (open) |
@@ -59,15 +59,15 @@ Target: StremioSubMaker v1.4.88. Nuvio facts below come from reading current sou
 - Risk: holds a translation slot up to 20s per cold request — already bounded by per-user
   concurrency limits (`canUserStartTranslation`).
 
-### A2. P0 — Machine-parseable action labels
+### A2. P0 — Cross-client action names
 
-- Action entry builders in [`src/handlers/subtitles.js`](../src/handlers/subtitles.js) send normalized
-  ISO-639-2 `lang` values such as `vie` plus the addon-provided `label` `Make Vietnamese` to Stremio.
+- Official Stremio builds the left language/action column from `lang`, while `label` names only the
+  selected variant. Preserve the original addon's `lang: "Make Vietnamese"` behavior so Make, Learn,
+  xSync, Auto, xEmbed, and SMDB remain separate actions instead of ordinary language variants.
 - Nuvio retains code-first tags such as `vi-Make` in `lang` and human-readable action IDs such as
   `Make Vietnamese`; its existing parser behavior is unchanged.
-- The separate `label` field restores visible action identity on current Stremio clients without
-  corrupting language sorting or preferred-language matching. Older clients that ignore `label` still
-  receive a valid ISO language row instead of blank/`und`.
+- **ponytail:** official Android clients may still render arbitrary action languages as blank/`und`.
+  Revisit when Stremio exposes a separate action-group field or reliable client capability signal.
 
 ### A3. P1 — Extras normalization for NuvioTV
 
@@ -113,8 +113,8 @@ Target: StremioSubMaker v1.4.88. Nuvio facts below come from reading current sou
 | #143 | Serbian charset corruption | Add Windows-1250/ISO-8859-2 heuristics + Latin/Cyrillic script-dominance validation to [`encodingDetector.js`](../src/utils/encodingDetector.js) | encodingDetector.js | P1 | DONE |
 | #147 | Forced subs not flagged | Surface `forced` in lang label (`French (forced)`), keep flag in id | [`subtitleFlags.js`](../src/utils/subtitleFlags.js), subtitles.js | P2 | DONE — `isForcedSubtitle`/`inferForcedFromName` + `(forced)` label in entry builder |
 | #141/#142/#150 | SubDL Cloudflare, OS.com quota, Wyzie rate limits | Exponential backoff + shared negative cache via [`rateLimitRedisStore.js`](../src/utils/rateLimitRedisStore.js); extend existing `providerAuthFailureCache` to 429s | subdl.js, opensubtitles*.js, wyzieSubs.js | P2 | open |
-| #151 | Missing Make option in some flows | Same builders as A2; include a human-readable `label` with every action entry | subtitles.js | P2 | DONE (fork) |
-| #50 | `Unknown (und)` / blank action entries | Send normalized ISO language codes plus human-readable labels to Stremio; retain code-first tags and IDs for Nuvio | [`subtitles.js`](../src/handlers/subtitles.js) | P2 | DONE (fork) |
+| #151 | Missing Make option in some flows | Preserve original human-readable action names in Stremio's `lang` grouping field | subtitles.js | P2 | DONE (fork) |
+| #50 | `Unknown (und)` / blank Android action entries | Client protocol/UI conflict: ISO `lang` hides action identity; arbitrary `lang` may be blank on Android | [`subtitles.js`](../src/handlers/subtitles.js) | P2 | open upstream |
 | #121 | Stremio Kai | Detection already exists (`x-stremio-kai` in stremioClientIdentity.js); verify/whitelist behavior | stremioClientIdentity.js | P2 | open |
 | #117 | Embedded subs on Android | Client-side limitation — document, no addon fix | docs | P3 | — |
 | #11 #16 #47 #52 #89 #123 #140 #148 #152 | Mixed config/UX | Triage individually | — | P3 | open |
@@ -172,8 +172,8 @@ Not issue-bound optimizations:
 
 - Simulate Nuvio: `curl -H "User-Agent: Nuvio/1.0" <addon>/translate/<id>/<lang>.srt` must return
   real or partial SRT within ~20s, never the loading placeholder.
-- Action responses must pair a parser-safe `lang` with a visible `label`, for example
-  `{ lang: "vie", label: "Make Vietnamese" }`; Nuvio keeps its `vi-Make` compatibility tag.
+- Official Stremio action responses must retain `{ lang: "Make Vietnamese" }` to create the language
+  button; Nuvio keeps its `vi-Make` compatibility tag and `Make Vietnamese` ID.
 - Follow the existing regression-test pattern
   ([`subtitles-timeout-regression.test.js`](../src/handlers/subtitles-timeout-regression.test.js)):
   cover action metadata, Nuvio labels, one nuvio-wait regression test, and one extras-normalization test.
